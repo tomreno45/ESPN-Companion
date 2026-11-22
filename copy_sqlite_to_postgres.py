@@ -18,7 +18,7 @@ import db
 
 # Parents before children so foreign keys are satisfied.
 TABLES = ["teams", "players", "roster_entries", "users", "transactions", "draft_picks",
-          "transaction_items", "sync_runs", "audit_log"]
+          "transaction_items", "sync_runs", "audit_log", "team_seasons", "lineups"]
 ID_TABLES = ["users", "transactions", "draft_picks", "transaction_items", "sync_runs", "audit_log"]
 
 
@@ -43,9 +43,9 @@ def main():
             # a commissioner created from COMMISSIONER_USERNAME on first start would clash
             dst.execute("DELETE FROM audit_log")
             dst.execute("DELETE FROM users")
-        sql = f"INSERT INTO {table} ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})"
-        for r in rows:
-            dst.execute(sql, [r[c] for c in cols])
+        sql = f"INSERT INTO {table} ({', '.join(cols)}) VALUES ({', '.join(['%s'] * len(cols))})"
+        with dst.raw.cursor() as cur:  # one batch per table: row by row is slow over the internet
+            cur.executemany(sql, [[r[c] for c in cols] for r in rows])
         print(f"{table}: {len(rows)} rows")
 
     for table in ID_TABLES:  # continue numbering after the copied ids
