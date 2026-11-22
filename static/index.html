@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#151617">
+  <title>Dynasty Companion</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🏈</text></svg>">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="signed-out">
+  <div id="auth-screen">
+    <form id="login-form" class="card auth-card">
+      <h1>Dynasty Companion</h1>
+      <p class="muted">Sign in with the account your commissioner gave you.</p>
+      <label class="block">Username <input name="username" autocomplete="username" required autofocus></label>
+      <label class="block">Password <input name="password" type="password" autocomplete="current-password" required></label>
+      <p class="form-error" hidden></p>
+      <button class="primary wide">Sign in</button>
+    </form>
+    <form id="password-form" class="card auth-card" hidden>
+      <h1>Choose your password</h1>
+      <p class="muted" id="password-intro"></p>
+      <label class="block" id="current-password-field">Current password <input name="current_password" type="password" autocomplete="current-password"></label>
+      <label class="block">New password <input name="new_password" type="password" autocomplete="new-password" minlength="8" required></label>
+      <label class="block">New password again <input name="confirm" type="password" autocomplete="new-password" minlength="8" required></label>
+      <p class="form-error" hidden></p>
+      <div class="actions"><button type="button" id="password-cancel">Cancel</button><span class="spacer"></span><button class="primary">Save password</button></div>
+    </form>
+  </div>
+
+  <header class="topbar">
+    <div class="topbar-row">
+      <div class="brand"><span class="brand-mark" aria-hidden="true">🏈</span>Dynasty Companion</div>
+      <div class="account">
+        <span id="whoami"></span>
+        <button class="small ghost" id="change-password">Password</button>
+        <button class="small ghost" id="sign-out">Sign out</button>
+      </div>
+    </div>
+    <nav id="tabs">
+      <button data-tab="teams" class="active">Teams</button>
+      <button data-tab="awards">Team Awards</button>
+      <button data-tab="records">League Records</button>
+      <button data-tab="transactions">Transactions</button>
+      <button data-tab="picks">Draft picks</button>
+      <button data-tab="activity">Activity</button>
+      <button data-tab="recover">Recover my trades</button>
+      <button data-tab="sync" class="commish-only">Sync</button>
+      <button data-tab="members" class="commish-only">Members</button>
+    </nav>
+  </header>
+
+  <main>
+    <section id="tab-teams" class="tab active">
+      <div class="toolbar">
+        <h1>Rosters &amp; draft capital</h1>
+        <span class="muted" id="teams-meta"></span>
+      </div>
+      <div id="teams-grid" class="grid"></div>
+    </section>
+
+    <section id="tab-awards" class="tab">
+      <div class="toolbar">
+        <h1>Team Awards</h1>
+        <div class="filters"><select id="aw-season" aria-label="Season"></select></div>
+      </div>
+      <p id="awards-note" class="muted small"></p>
+      <div id="awards-grid" class="grid"></div>
+    </section>
+
+    <section id="tab-records" class="tab">
+      <div class="toolbar">
+        <h1>League Records</h1>
+        <div class="filters"><select id="rec-season" aria-label="Season"></select></div>
+      </div>
+      <p id="records-note" class="muted small"></p>
+      <div id="records-grid" class="grid"></div>
+    </section>
+
+    <section id="tab-transactions" class="tab">
+      <div class="toolbar">
+        <h1>Transactions</h1>
+        <div class="filters">
+          <input id="f-q" type="search" placeholder="Player or note">
+          <select id="f-team"><option value="">All teams</option></select>
+          <select id="f-kind">
+            <option value="">All types</option>
+            <option value="TRADE">Trades</option>
+            <option value="WAIVER">Waivers</option>
+            <option value="ADD">Free agent adds</option>
+            <option value="DROP">Drops</option>
+          </select>
+          <select id="f-season"><option value="">All seasons</option></select>
+          <label class="check"><input id="f-picks" type="checkbox"> With picks</label>
+          <button id="new-trade" class="primary">New trade</button>
+          <a class="button" href="/api/export/transactions.csv">CSV</a>
+        </div>
+      </div>
+      <div id="txn-list"></div>
+    </section>
+
+    <section id="tab-picks" class="tab">
+      <div class="toolbar">
+        <h1>Draft picks</h1>
+        <div class="filters">
+          <select id="p-season"><option value="">All seasons</option></select>
+          <select id="p-team"><option value="">All owners</option></select>
+          <label class="check"><input id="p-moved" type="checkbox"> Traded only</label>
+        </div>
+      </div>
+      <form id="gen-form" class="card inline-form commish-only">
+        <strong>Create picks</strong>
+        <label>Seasons <input name="start_season" type="number" required> to <input name="end_season" type="number" required></label>
+        <label>Rounds <input name="rounds" type="number" min="1" max="40" value="4" required></label>
+        <button class="primary">Create for every team</button>
+        <span class="muted">Existing picks are left alone.</span>
+      </form>
+      <p id="picks-note" class="muted small"></p>
+      <div id="picks-table"></div>
+    </section>
+
+    <section id="tab-activity" class="tab">
+      <div class="toolbar">
+        <h1>Activity</h1>
+        <div class="filters">
+          <select id="a-user"><option value="">Everyone</option></select>
+        </div>
+      </div>
+      <p class="muted small">Every change anyone makes is recorded here, including what was deleted.</p>
+      <div id="activity-list"></div>
+      <button id="activity-more" hidden>Show older</button>
+    </section>
+
+    <section id="tab-recover" class="tab">
+      <div class="toolbar"><h1>Recover my trades</h1></div>
+      <div class="card recover">
+        <p id="recover-status"></p>
+        <p>ESPN only shows what was traded in a past trade to the managers whose team was in it. Share your ESPN login
+          with this site once and it fills in every past trade your team made, for everyone in the league to see.</p>
+        <p class="warning small">Your ESPN login cookies are sent once over a secure connection, used only to read this
+          league's past trades, and then thrown away: they're never saved, and nobody else, the commissioner included,
+          can see them. Only share them with this league's own site.</p>
+
+        <h3>The quick way (on a computer)</h3>
+        <ol>
+          <li>Drag this button to your bookmarks bar:
+            <a id="espn-bookmarklet" class="button bookmarklet" href="#">Send ESPN login</a>
+            <div class="muted small">In Edge it's the <strong>favorites bar</strong>: press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd> to show it first.</div></li>
+          <li>Go to <strong>fantasy.espn.com</strong> and sign in.</li>
+          <li>Click the <strong>Send ESPN login</strong> bookmark. This site opens in a new tab and fills in your trades.</li>
+        </ol>
+        <details class="small">
+          <summary>On a phone</summary>
+          <p>Tap <button type="button" class="small" id="copy-bookmarklet">Copy the bookmark</button>, then bookmark any page,
+            edit that bookmark, and paste over its address. Name it <strong>Send ESPN login</strong>. While signed in on
+            fantasy.espn.com, open the bookmark: in Chrome, type its name in the address bar and tap it; in Safari, pick it
+            from your bookmarks.</p>
+        </details>
+
+        <details id="recover-console">
+          <summary>No bookmarks? Use the browser console instead</summary>
+          <ol>
+            <li><button type="button" class="small" id="open-espn">Open ESPN</button> opens your league on fantasy.espn.com
+              in a new tab. Sign in there if it asks. Use this button rather than opening ESPN yourself, so the ESPN tab
+              knows where to send your login.</li>
+            <li>In the ESPN tab, open the console: press <kbd>F12</kbd> and choose <strong>Console</strong>
+              (or <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>J</kbd>; on a Mac <kbd>⌥</kbd>+<kbd>⌘</kbd>+<kbd>J</kbd>).</li>
+            <li><button type="button" class="small" id="copy-console-code">Copy the code</button>, paste it into the console
+              and press <kbd>Enter</kbd>. Edge and Chrome may first ask you to type <code>allow pasting</code>: that's
+              their standard warning about pasting code, and this is the code below.</li>
+            <li>ESPN says "Sent!". Come back to this tab and your trades fill in.</li>
+          </ol>
+          <p class="muted small">The code only reads your ESPN cookies and sends them to this site, nowhere else:</p>
+          <textarea id="console-code" class="code" rows="5" readonly spellcheck="false"></textarea>
+        </details>
+
+        <details id="recover-manual">
+          <summary>Or copy the cookies yourself</summary>
+          <ol>
+            <li>On a computer, sign in at <strong>espn.com</strong>.</li>
+            <li>Open the developer tools (F12, or right-click the page and choose Inspect).</li>
+            <li>Go to <strong>Application</strong> (Chrome, Edge) or <strong>Storage</strong> (Firefox), then <strong>Cookies</strong>, then <strong>https://fantasy.espn.com</strong>.</li>
+            <li>Copy the values of <code>SWID</code> and <code>espn_s2</code> into the boxes below.</li>
+          </ol>
+          <form id="recover-form">
+            <label class="block">SWID <input name="swid" autocomplete="off" spellcheck="false" placeholder="{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}" required></label>
+            <label class="block">espn_s2 <input name="espn_s2" type="password" autocomplete="off" spellcheck="false" required></label>
+            <button class="primary">Recover my trades</button>
+          </form>
+        </details>
+        <p id="recover-result" class="result" role="status" hidden></p>
+      </div>
+    </section>
+
+    <section id="tab-sync" class="tab">
+      <div class="toolbar"><h1>Sync with ESPN</h1></div>
+      <div class="card">
+        <p id="sync-config" class="muted"></p>
+        <div class="inline-form">
+          <label>Season <input id="sync-year" type="number"></label>
+          <button id="sync-quick" class="primary">Sync new activity</button>
+          <button id="sync-full">Pull full history</button>
+          <button id="sync-past">Import all past seasons</button>
+        </div>
+        <p class="muted small">Rosters and standings update when syncing the current season. ESPN keeps the activity feed only for
+          the current season, so earlier seasons come from its transaction log instead: every add, drop and waiver claim,
+          but for many trades only the date and who accepted. Those show up as trades for members to fill in with Edit.
+          Draft picks and anything added to a transaction are never overwritten by a sync.</p>
+        <p id="sync-result"></p>
+      </div>
+      <h2>Recent syncs</h2>
+      <div id="sync-runs"></div>
+    </section>
+
+    <section id="tab-members" class="tab">
+      <div class="toolbar"><h1>League members</h1></div>
+      <form id="member-form" class="card inline-form">
+        <strong>Add a member</strong>
+        <input name="display_name" placeholder="Name" required>
+        <input name="username" placeholder="Username" required autocomplete="off">
+        <select name="team_id"></select>
+        <label class="check"><input name="is_commissioner" type="checkbox"> Commissioner</label>
+        <button class="primary">Create account</button>
+        <span class="muted small">They get a temporary password and choose their own on first sign-in.</span>
+      </form>
+      <div id="members-table"></div>
+    </section>
+  </main>
+
+  <dialog id="modal">
+    <form method="dialog" id="modal-body"></form>
+  </dialog>
+  <div id="toast" hidden></div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
