@@ -89,8 +89,9 @@ since it holds the only copy of the draft pick history.
    trusting this site with them. Players a member already typed in aren't added
    twice, and a later "Import all past seasons" doesn't undo a recovery.
 2. **Draft picks** tab: "Create picks" gives every team its own picks for a range
-   of seasons. Each draft's order is the season before's final standings,
-   reversed (last place picks first, the champion last), fetched from ESPN; for past
+   of seasons. Each draft's order comes from the season before, fetched
+   from ESPN: the teams that missed the playoffs pick first, worst regular-season record
+   first, then the playoff teams by playoff finish, the champion last; for past
    seasons the picks go to that season's teams. The tab shows upcoming drafts unless you
    pick a season or "All seasons". Edit a pick to set its slot in the round, who it was used on, or a note.
 3. To show picks changing hands:

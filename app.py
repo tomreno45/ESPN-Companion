@@ -147,13 +147,24 @@ def projected_slots(teams):
 
 
 def draft_orders(conn):
-    """{draft season: {team_id: spot in each round}} from the season before's final standings:
-    last place picks first, the champion last. Only seasons where every team has a final rank."""
+    """{draft season: {team_id: spot in each round}} from how the season before ended.
+
+    The teams that missed the playoffs pick first, worst regular-season record first
+    (ESPN's rank, tiebreakers applied); then the playoff teams by playoff finish, the
+    champion last. Only for seasons that are over.
+    """
     by_season = {}
-    for r in conn.execute("SELECT season, team_id, final_standing FROM team_seasons"):
-        by_season.setdefault(r["season"], {})[r["team_id"]] = r["final_standing"]
-    return {season + 1: {tid: len(ranks) + 1 - rank for tid, rank in ranks.items()}
-            for season, ranks in by_season.items() if all(ranks.values())}
+    for r in conn.execute("SELECT season, team_id, standing, final_standing, playoff_teams FROM team_seasons"):
+        by_season.setdefault(r["season"], []).append(r)
+    orders = {}
+    for season, rows in by_season.items():
+        if not all(r["standing"] and r["final_standing"] and r["playoff_teams"] for r in rows):
+            continue
+        cut = rows[0]["playoff_teams"]
+        missed = sorted((r for r in rows if r["standing"] > cut), key=lambda r: -r["standing"])
+        made = sorted((r for r in rows if r["standing"] <= cut), key=lambda r: -r["final_standing"])
+        orders[season + 1] = {r["team_id"]: spot for spot, r in enumerate(missed + made, 1)}
+    return orders
 
 
 def load_picks(conn, teams=None):
@@ -166,8 +177,8 @@ def load_picks(conn, teams=None):
     picks = []
     for p in conn.execute("SELECT * FROM draft_picks"):
         p["owner_team_id"] = owners.get(p["id"], p["original_team_id"])
-        # A pick's spot comes from its original team: set by hand, else the final standings of the
-        # season before, else (for the next draft, mid-season) a projection from today's standings.
+        # A pick's spot comes from its original team: set by hand, else how the season before ended,
+        # else (for the next draft, until the season is over) a projection from today's records.
         slot, projected = p["pick_in_round"], False
         if slot is None:
             slot = orders.get(p["season"], {}).get(p["original_team_id"])

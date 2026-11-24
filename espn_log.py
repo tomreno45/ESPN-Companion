@@ -147,20 +147,24 @@ def season_has_feed(conn, season):
 def store_team_names(conn, league):
     """Record each team's name, record and standing that season, and add teams that have since left the league."""
     names = {}
+    playoff_teams = getattr(getattr(league, "settings", None), "playoff_team_count", None)
     for team in league.teams:
         names[team.team_id] = team.team_name
         if not conn.execute("SELECT 1 FROM teams WHERE id = ?", (team.team_id,)).fetchone():
             conn.execute("INSERT INTO teams (id, name, abbrev, current, updated_at) VALUES (?, ?, ?, 0, ?)",
                          (team.team_id, team.team_name, getattr(team, "team_abbrev", None), now_ms()))
-        conn.execute("""INSERT INTO team_seasons (season, team_id, name, abbrev, wins, losses, ties, points_for, standing, final_standing)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        conn.execute("""INSERT INTO team_seasons (season, team_id, name, abbrev, wins, losses, ties, points_for, standing,
+                                                  final_standing, playoff_teams)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         ON CONFLICT (season, team_id) DO UPDATE SET name = excluded.name, abbrev = excluded.abbrev,
                             wins = excluded.wins, losses = excluded.losses, ties = excluded.ties, points_for = excluded.points_for,
-                            standing = excluded.standing, final_standing = excluded.final_standing""",
+                            standing = excluded.standing, final_standing = excluded.final_standing,
+                            playoff_teams = excluded.playoff_teams""",
                      (league.year, team.team_id, team.team_name, getattr(team, "team_abbrev", None),
                       getattr(team, "wins", None), getattr(team, "losses", None), getattr(team, "ties", None),
                       getattr(team, "points_for", None), getattr(team, "standing", None) or None,
-                      getattr(team, "final_standing", None) or None))  # ESPN says 0 until the season is over
+                      getattr(team, "final_standing", None) or None,  # ESPN says 0 until the season is over
+                      playoff_teams))
         # A team that has left the league goes by the last name it had.
         conn.execute("""UPDATE teams SET name = ?, abbrev = ? WHERE id = ? AND current = 0
                         AND NOT EXISTS (SELECT 1 FROM team_seasons WHERE team_id = ? AND season > ?)""",
@@ -175,7 +179,8 @@ def fetch_draft_standings(conn, make_league, current_year):
     """
     needed = {r["season"] - 1 for r in conn.execute("SELECT DISTINCT season FROM draft_picks")}
     have = {r["season"] for r in conn.execute("""SELECT season FROM team_seasons GROUP BY season
-                                                 HAVING COUNT(*) = COUNT(final_standing)""")}
+                                                 HAVING COUNT(*) = COUNT(final_standing)
+                                                    AND COUNT(*) = COUNT(standing) AND COUNT(*) = COUNT(playoff_teams)""")}
     fetched = []
     for year in sorted(y for y in needed - have if y < current_year):
         try:

@@ -847,11 +847,11 @@ def test_trade_points_and_votes(client, flask_app):
     assert (rookie["traded_on_to"], rookie["points"]) == (1, None)
 
 
-def test_past_draft_order_from_final_standings(client, monkeypatch):
+def test_past_draft_order_from_how_the_season_ended(client, monkeypatch):
     client.post("/api/sync", json={})  # 2026: teams 1 (Alpha) and 2 (Bravo)
 
-    def past_league(year):  # Bravo won it all, Alpha finished last
-        return NS(year=year, teams=[
+    def past_league(year):  # a one-team playoff: Bravo made it, Alpha didn't
+        return NS(year=year, settings=NS(playoff_team_count=1), teams=[
             NS(team_id=1, team_name="Old Alpha", team_abbrev="ALP", wins=3, losses=10, ties=0, points_for=1200.5, standing=2, final_standing=2),
             NS(team_id=2, team_name="Bravo", team_abbrev="BRV", wins=9, losses=4, ties=0, points_for=1500.0, standing=1, final_standing=1)])
     monkeypatch.setattr(espn_sync, "make_league", lambda year=None: past_league(year) if year and year < 2026 else FakeLeague(FEED))
@@ -877,3 +877,21 @@ def test_past_draft_order_from_final_standings(client, monkeypatch):
     # the Teams tab lists only picks still to be used
     teams = {t["id"]: t for t in client.get("/api/teams").json}
     assert {p["season"] for p in teams[1]["picks"]} == {2027}
+
+
+def test_draft_order_non_playoff_teams_by_record_then_playoff_finish():
+    # 2025 as it happened at the bottom: Meerkat (8th by record) lost out in the consolation games
+    # and ESPN ranks it 10th; Fail to The Victors (10th by record) won them and ranks 8th.
+    teams = [  # team, regular-season rank, final rank
+        (11, 1, 1), (12, 2, 3), (9, 3, 5), (10, 4, 4), (13, 5, 6), (8, 6, 2),  # the six playoff teams
+        (5, 7, 7), (2, 8, 10), (4, 9, 9), (1, 10, 8)]
+    conn = db.connect(":memory:")
+    db.init_db(conn)
+    for tid, standing, final in teams:
+        conn.execute("INSERT INTO teams (id, name) VALUES (?, ?)", (tid, f"T{tid}"))
+        conn.execute("""INSERT INTO team_seasons (season, team_id, name, standing, final_standing, playoff_teams)
+                        VALUES (2025, ?, ?, ?, ?, 6)""", (tid, f"T{tid}", standing, final))
+    order = app_module.draft_orders(conn)[2026]
+    conn.close()
+    assert sorted(order, key=order.get) == [1, 4, 2, 5,             # missed the playoffs: worst record first
+                                            13, 9, 10, 12, 8, 11]   # then playoff finish, 6th to champion

@@ -539,7 +539,7 @@ function renderPicks() {
   $("#picks-note").textContent = (hasStandings
     ? `Spots for the ${state.sync.draft_season} draft are projected from current standings until the season ends. `
     : `Sync the ${state.sync.year} season to project ${state.sync.draft_season} draft spots from the standings. `)
-    + "Each draft's order is the season before's final standings, reversed: last place picks first, the champion last. Set a pick's number to override it.";
+    + "Once a season is over, the teams that missed the playoffs pick first, worst regular-season record first; then the playoff teams by playoff finish, the champion last. Set a pick's number to override it.";
   if (!state.picks.length) {
     el.innerHTML = `<div class="empty">No picks yet. ${state.me?.is_commissioner ? "Use “Create picks” above to give every team its own picks for the seasons you track." : "The commissioner hasn't created them yet."}</div>`;
     return;
