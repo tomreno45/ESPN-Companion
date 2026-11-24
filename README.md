@@ -107,6 +107,11 @@ since it holds the only copy of the draft pick history.
    team weeks, biggest weeks left on the bench, best player seasons and best team
    seasons (points per week, since early seasons had 16 weeks), all-time or per
    season (`records.py`). Only finished weeks count.
+   **Trades** (Transactions tab): each trade shows what every side got and the points
+   those players went on to score as starters for their new team, until they left it.
+   A traded pick shows the player it was used on (set "used on" when editing the pick)
+   and his points for the team that made the pick. Members vote on who won, or a tie;
+   click your vote again to take it back (`trades.py`).
 5. **Activity** tab lists every change: who made it, when, and what it was.
    Edit dialogs for a trade or a pick show that item's own change history.
 
@@ -132,7 +137,8 @@ trade puts the pick back automatically.
 - `db.py`: schema (SQLite or Postgres), pick-ownership logic, activity log writes
 - `espn_sync.py`: ESPN pull, built on `espn_api`
 - `espn_log.py`: past seasons from ESPN's transaction log
-- `espn_lineups.py`: weekly lineups and points; `awards.py`: Team Awards; `records.py`: League Records
+- `espn_lineups.py`: weekly lineups and points; `awards.py`: Team Awards; `records.py`: League Records;
+  `trades.py`: trade points and votes
 - `wsgi.py`, `railway.json`, `.python-version`: hosting on Railway with gunicorn
 - `manage.py`: create accounts or reset passwords from the command line
 - `copy_sqlite_to_postgres.py`: one-time move of an existing `dynasty.db` to Postgres

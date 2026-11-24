@@ -27,6 +27,7 @@ import db
 import espn_log
 import espn_sync
 import records
+import trades
 
 app = Flask(__name__, static_folder="static", static_url_path="/static")
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)  # Railway sits behind one proxy
@@ -493,7 +494,42 @@ def api_transactions():
     if request.args.get("has_picks") == "1":
         clauses.append("id IN (SELECT transaction_id FROM transaction_items WHERE asset_type = 'pick')")
     where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
-    return jsonify(load_transactions(get_db(), where, params, limit=request.args.get("limit", 500)))
+    conn = get_db()
+    txns = load_transactions(conn, where, params, limit=request.args.get("limit", 500))
+    deals = [t for t in txns if t["kind"] == "TRADE"]
+    trades.grade(conn, deals, db.now_ms())
+    tallies = trades.votes(conn, [t["id"] for t in deals], g.user["id"])
+    for t in deals:
+        t["votes"] = tallies[t["id"]]
+    return jsonify(txns)
+
+
+# ---------- trade votes ----------
+
+@app.put("/api/transactions/<int:txn_id>/vote")
+def api_vote(txn_id):
+    conn = get_db()
+    t = get_txn(conn, txn_id)
+    if not t or t["kind"] != "TRADE":
+        return bad_request("Only trades can be voted on.", 404)
+    choice = body().get("choice")
+    if not isinstance(choice, int) or isinstance(choice, bool) or choice not in [trades.TIE] + trades.side_teams(t):
+        return bad_request("Vote for a team in the trade, or for a tie.")
+    if len(trades.side_teams(t)) < 2:
+        return bad_request("This trade needs both teams filled in before it can be voted on.")
+    conn.execute("""INSERT INTO trade_votes (transaction_id, user_id, choice, voted_at) VALUES (?, ?, ?, ?)
+                    ON CONFLICT (transaction_id, user_id) DO UPDATE SET choice = excluded.choice, voted_at = excluded.voted_at""",
+                 (txn_id, g.user["id"], choice, db.now_ms()))
+    conn.commit()
+    return jsonify(trades.votes(conn, [txn_id], g.user["id"])[txn_id])
+
+
+@app.delete("/api/transactions/<int:txn_id>/vote")
+def api_unvote(txn_id):
+    conn = get_db()
+    conn.execute("DELETE FROM trade_votes WHERE transaction_id = ? AND user_id = ?", (txn_id, g.user["id"]))
+    conn.commit()
+    return jsonify(trades.votes(conn, [txn_id], g.user["id"])[txn_id])
 
 
 def get_txn(conn, txn_id):

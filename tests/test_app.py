@@ -779,3 +779,69 @@ def test_hosted_app_refuses_to_run_without_postgres(monkeypatch):
     monkeypatch.setenv("DATABASE_URL", "")  # an unresolved ${{Postgres.DATABASE_URL}} comes through empty
     with pytest.raises(RuntimeError, match="DATABASE_URL"):
         app_module.configure()
+
+
+# ---------- trade grades and votes ----------
+
+def test_trade_points_and_votes(client, flask_app):
+    client.post("/api/sync", json={})  # teams 1 (Alpha) and 2 (Bravo)
+    conn = db.connect()
+    conn.execute("INSERT INTO players (id, name, position) VALUES (301, 'Big Back', 'RB'), (302, 'Rookie Star', 'WR')")
+    pick_id = conn.insert("INSERT INTO draft_picks (season, round, original_team_id, used_on) VALUES (2025, 1, 1, 'Rookie Star')")
+
+    def lineup(season, week, team, pid, slot, pts):
+        conn.execute("""INSERT INTO lineups (season, week, team_id, player_id, player_name, position, slot, points)
+                        VALUES (?, ?, ?, ?, 'x', 'RB', ?, ?)""", (season, week, team, pid, slot, pts))
+
+    lineup(2024, 2, 2, 301, "RB", 50)   # before the trade, for Bravo: not Alpha's
+    lineup(2024, 5, 1, 301, "RB", 20)
+    lineup(2024, 6, 1, 301, "BE", 30)   # benched points don't count
+    # this league adds its rookies as free agents the summer of the draft
+    add = conn.insert("INSERT INTO transactions (season, date_ms, kind, source) VALUES (2025, ?, 'ADD', 'espn')",
+                      (espn_lineups.season_start(2025) - 60 * DAY,))
+    conn.execute("""INSERT INTO transaction_items (transaction_id, asset_type, player_id, player_name, to_team_id, action)
+                    VALUES (?, 'player', 302, 'Rookie Star', 2, 'FA ADDED')""", (add,))
+    lineup(2025, 1, 2, 302, "WR", 12)
+    lineup(2025, 2, 2, 302, "BE", 9)
+    conn.commit()
+    conn.close()
+
+    r = client.post("/api/transactions", json={"kind": "TRADE", "date": "2024-10-01T12:00", "season": 2024, "items": [
+        {"asset_type": "player", "player_name": "Big Back", "player_id": 301, "from_team_id": 2, "to_team_id": 1},
+        {"asset_type": "pick", "pick_id": pick_id, "from_team_id": 1, "to_team_id": 2}]})
+    assert r.status_code == 201, r.json
+    txn_id = r.json["transaction"]["id"]
+
+    t = next(x for x in client.get("/api/transactions?kind=TRADE").json if x["id"] == txn_id)
+    sides = {s["team_id"]: s for s in t["sides"]}
+    big = sides[1]["assets"][0]
+    assert (big["label"], big["points"], big["starts"]) == ("Big Back", 20, 1)
+    rookie = sides[2]["assets"][0]
+    assert (rookie["kind"], rookie["used_on"], rookie["points"], rookie["starts"]) == ("pick", "Rookie Star", 12, 1)
+    assert (sides[1]["points"], sides[2]["points"]) == (20, 12)
+    assert t["votes"] == {"tally": {}, "mine": None}
+
+    vote = lambda c, choice: c.put(f"/api/transactions/{txn_id}/vote", json={"choice": choice})
+    assert vote(client, 1).json == {"tally": {"1": ["Commish"]}, "mine": 1}
+    make_user("tom", "Tom")
+    tom = signed_in(flask_app, "tom")
+    assert vote(tom, 0).json == {"tally": {"1": ["Commish"], "0": ["Tom"]}, "mine": 0}
+    assert vote(tom, 2).json["tally"] == {"1": ["Commish"], "2": ["Tom"]}  # changing a vote replaces it
+    assert vote(tom, 99).status_code == 400  # not a team in the trade
+    assert vote(tom, "1").status_code == 400
+    assert tom.delete(f"/api/transactions/{txn_id}/vote", json={}).json == {"tally": {"1": ["Commish"]}, "mine": None}
+    assert client.put(f"/api/transactions/{add}/vote", json={"choice": 2}).status_code == 404  # not a trade
+    mine = next(x for x in client.get("/api/transactions?kind=TRADE").json if x["id"] == txn_id)["votes"]
+    assert mine == {"tally": {"1": ["Commish"]}, "mine": 1}
+
+    # a pick traded on again before the draft counts for the team that used it, not this one
+    conn = db.connect()
+    later = conn.insert("INSERT INTO transactions (season, date_ms, kind, source) VALUES (2025, ?, 'TRADE', 'manual')",
+                        (espn_lineups.season_start(2025) - 90 * DAY,))
+    conn.execute("""INSERT INTO transaction_items (transaction_id, asset_type, pick_id, from_team_id, to_team_id, action, source)
+                    VALUES (?, 'pick', ?, 2, 1, 'PICK TRADED', 'manual')""", (later, pick_id))
+    conn.commit()
+    conn.close()
+    t = next(x for x in client.get("/api/transactions?kind=TRADE").json if x["id"] == txn_id)
+    rookie = next(s for s in t["sides"] if s["team_id"] == 2)["assets"][0]
+    assert (rookie["traded_on_to"], rookie["points"]) == (1, None)

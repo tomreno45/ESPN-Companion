@@ -150,6 +150,15 @@ CREATE TABLE IF NOT EXISTS lineups (
     PRIMARY KEY (season, week, team_id, player_id)
 );
 
+-- Members' verdicts on trades: the team they think won, or 0 for a tie. One per member per trade.
+CREATE TABLE IF NOT EXISTS trade_votes (
+    transaction_id  INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
+    user_id         INTEGER NOT NULL REFERENCES users(id),
+    choice          INTEGER NOT NULL,
+    voted_at        BIGINT,
+    PRIMARY KEY (transaction_id, user_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_items_txn  ON transaction_items(transaction_id);
 CREATE INDEX IF NOT EXISTS idx_lineups_player ON lineups(player_id);
 CREATE INDEX IF NOT EXISTS idx_items_pick ON transaction_items(pick_id);

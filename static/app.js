@@ -280,7 +280,71 @@ function renderRecords() {
 
 const KIND_LABEL = { TRADE: "Trade", WAIVER: "Waiver claim", ADD: "Free agent", DROP: "Release", OTHER: "Other" };
 
+// ---------- trade grades and votes ----------
+
+const fmtMonthYear = (ms) => new Date(ms).toLocaleDateString(undefined, { month: "short", year: "numeric" });
+const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+function assetLine(a) {
+  const pts = a.points == null ? "" : `<span class="asset-pts">${fmtPts(a.points)} pts</span>`;
+  const bits = [];
+  if (a.kind === "pick") {
+    if (a.traded_on_to) bits.push(`Traded on to ${esc(teamName(a.traded_on_to))} before the draft`);
+    else if (a.used_on) bits.push(`Used on <strong>${esc(a.used_on)}</strong>`);
+  }
+  if (a.points != null) bits.push(a.starts ? plural(a.starts, "start") : "Never started");
+  if (a.left === "drop") bits.push(`dropped ${fmtMonthYear(a.left_at)}`);
+  else if (a.left === "trade") bits.push(`traded away ${fmtMonthYear(a.left_at)}`);
+  else if (a.left === "unrecorded") bits.push(`gone by ${fmtMonthYear(a.left_at)}`);
+  else if (a.points != null && !a.traded_on_to) bits.push("still on the team");
+  if (a.note) bits.push(esc(a.note));
+  return `<li class="${a.kind}">${a.kind === "pick" ? "🎟️ " : ""}${esc(a.label)} ${pts}
+    ${bits.length ? `<div class="muted small">${bits.join(" · ")}</div>` : ""}</li>`;
+}
+
+function describeTrade(t) {
+  const released = t.items.filter((i) => i.to_team_id == null);
+  return t.sides.map((s) => `
+    <div class="side">
+      <div class="side-team">${esc(teamName(s.team_id))} receives${s.points != null && s.assets.length
+        ? ` <span class="side-pts" title="Points the players scored as starters for this team">${fmtPts(s.points)} pts</span>` : ""}</div>
+      ${s.assets.length ? `<ul>${s.assets.map(assetLine).join("")}</ul>` : `<p class="muted small">Not filled in yet. Use Edit to add what they got.</p>`}
+    </div>`).join("")
+    + (released.length ? `<div class="side"><div class="side-team">Released</div><ul>${released.map((i) => `<li>${esc(i.label)}</li>`).join("")}</ul></div>` : "");
+}
+
+function voteBar(t) {
+  if (!t.votes || t.sides.length < 2) return "";
+  const { tally, mine } = t.votes;
+  const total = Object.values(tally).reduce((n, v) => n + v.length, 0);
+  const options = [...t.sides.map((s) => ({ choice: s.team_id, label: `${teamName(s.team_id)} won` })), { choice: 0, label: "Tie" }];
+  const counts = options.map((o) => (tally[o.choice] || []).length);
+  const top = Math.max(...counts);
+  const leaders = options.filter((o, i) => counts[i] === top);
+  const verdict = !total ? "No votes yet. Be the first."
+    : leaders.length > 1 ? `Split decision (${plural(total, "vote")})`
+    : `League says: ${leaders[0].choice === 0 ? "a tie" : esc(leaders[0].label)} (${top} of ${plural(total, "vote")})`;
+  return `<div class="vote">
+    <div class="vote-head"><strong>Who won?</strong> <span class="muted small">${verdict}</span></div>
+    <div class="vote-options">${options.map((o, i) => `
+      <button class="small vote-btn ${mine === o.choice ? "mine" : ""}" data-vote="${t.id}" data-choice="${o.choice}"
+        aria-pressed="${mine === o.choice}" title="${esc((tally[o.choice] || []).join(", "))}">
+        ${esc(o.label)} <span class="vote-count">${counts[i]}</span></button>`).join("")}</div>
+    ${total ? `<div class="voters muted small">${options.filter((o) => tally[o.choice]?.length)
+      .map((o) => `${esc(o.choice === 0 ? "Tie" : teamName(o.choice))}: ${esc(tally[o.choice].join(", "))}`).join(" · ")}</div>` : ""}
+  </div>`;
+}
+
+async function castVote(txnId, choice) {
+  const t = state.txns.find((x) => x.id === txnId);
+  const again = t?.votes?.mine === choice;  // clicking your own vote takes it back
+  t.votes = await api(`/api/transactions/${txnId}/vote`, again ? { method: "DELETE" } : { method: "PUT", body: { choice } });
+  const card = $(`.txn[data-id="${txnId}"] .vote`);
+  if (card) card.outerHTML = voteBar(t);
+}
+
 function describeTxn(t) {
+  if (t.kind === "TRADE" && t.sides) return describeTrade(t);
   if (t.kind === "TRADE" || t.items.some((i) => i.asset_type === "pick")) {
     const byTeam = {};
     for (const it of t.items) {
@@ -309,7 +373,7 @@ function renderTxns() {
     return;
   }
   list.innerHTML = state.txns.map((t) => `
-    <article class="card txn kind-${t.kind}">
+    <article class="card txn kind-${t.kind}" data-id="${t.id}">
       <div class="txn-head">
         <span class="badge">${KIND_LABEL[t.kind] || t.kind}</span>
         ${t.source === "manual" ? `<span class="badge manual">Manual</span>` : ""}
@@ -320,6 +384,7 @@ function renderTxns() {
       <div class="txn-body">${describeTxn(t)}</div>
       ${espnNote(t) ? `<p class="espn-note muted small">${esc(espnNote(t))}</p>` : ""}
       ${t.note ? `<p class="note">${esc(t.note)}</p>` : ""}
+      ${t.kind === "TRADE" ? voteBar(t) : ""}
     </article>`).join("");
 }
 
@@ -571,6 +636,8 @@ document.addEventListener("click", (e) => {
   const d = e.target.dataset;
   if (d.goto) { e.preventDefault(); showTab(d.goto); }
   if (d.edit) openEditTxn(+d.edit);
+  const vote = e.target.closest("[data-vote]");  // the click may land on the count inside the button
+  if (vote) castVote(+vote.dataset.vote, +vote.dataset.choice).catch((err) => toast(err.message, true));
   if (d.editPick) openEditPick(+d.editPick);
   if (d.history) { e.preventDefault(); showPickHistory(+d.history); }
   if (d.tradePick) {

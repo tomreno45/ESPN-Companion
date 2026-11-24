@@ -18,7 +18,7 @@ import db
 
 # Parents before children so foreign keys are satisfied.
 TABLES = ["teams", "players", "roster_entries", "users", "transactions", "draft_picks",
-          "transaction_items", "sync_runs", "audit_log", "team_seasons", "lineups"]
+          "transaction_items", "sync_runs", "audit_log", "team_seasons", "lineups", "trade_votes"]
 ID_TABLES = ["users", "transactions", "draft_picks", "transaction_items", "sync_runs", "audit_log"]
 
 
