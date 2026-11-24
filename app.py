@@ -1002,7 +1002,12 @@ def configure():
     hosted = any(k in os.environ for k in ("RAILWAY_ENVIRONMENT", "RAILWAY_ENVIRONMENT_NAME"))
     if hosted and not db.using_postgres():
         # Railway's disk is wiped on every deploy, so a SQLite file there would lose everything
-        raise RuntimeError("DATABASE_URL is empty or not a Postgres URL. On the app service's Variables, set it to "
+        url = db.database_url()
+        got = ("is empty" if not url else f"is the unresolved text {url!r}" if "${{" in url
+               else f"starts with {url.split(':')[0][:20]!r} ({len(url)} characters)")  # never the password
+        names = sorted(k for k in os.environ if "DATABASE" in k or k.startswith("PG"))
+        raise RuntimeError(f"DATABASE_URL {got}, not a postgresql:// URL. Database variables this service has: "
+                           f"{', '.join(names) or 'none'}. On the app service's Variables, set DATABASE_URL to "
                            "${{Postgres.DATABASE_URL}}, using the Postgres service's exact name.")
     print(f"Using {'Postgres' if db.using_postgres() else 'the SQLite file ' + db.db_path()}.", file=sys.stderr)
     app.config.update(

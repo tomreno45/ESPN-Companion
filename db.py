@@ -187,7 +187,8 @@ def db_path():
 
 
 def database_url():
-    return os.environ.get("DATABASE_URL", "")
+    # forgiving of quotes or spaces pasted in with the value
+    return os.environ.get("DATABASE_URL", "").strip().strip("\"'").strip()
 
 
 def using_postgres():
