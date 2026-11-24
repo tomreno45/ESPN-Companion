@@ -94,6 +94,9 @@ since it holds the only copy of the draft pick history.
    first, then the playoff teams by playoff finish, the champion last; for past
    seasons the picks go to that season's teams. The tab shows upcoming drafts unless you
    pick a season or "All seasons". Edit a pick to set its slot in the round, who it was used on, or a note.
+   "Used on" must be a player in the system: the box suggests names as you type, from
+   rosters, transactions, lineups and ESPN's full player list (saved on every sync, so
+   a rookie nobody has added yet can be chosen). Names that match no one are flagged.
 3. To show picks changing hands:
    - On the **Transactions** tab, press **Edit** on an ESPN trade and add the picks
      that were part of the deal.
@@ -142,7 +145,8 @@ trade puts the pick back automatically.
 - `espn_sync.py`: ESPN pull, built on `espn_api`
 - `espn_log.py`: past seasons from ESPN's transaction log
 - `espn_lineups.py`: weekly lineups and points; `awards.py`: Team Awards; `records.py`: League Records;
-  `trades.py`: trade points and votes
+  `trades.py`: trade points and votes;
+  `players.py`: the player list behind name suggestions
 - `wsgi.py`, `railway.json`, `.python-version`: hosting on Railway with gunicorn
 - `manage.py`: create accounts or reset passwords from the command line
 - `copy_sqlite_to_postgres.py`: one-time move of an existing `dynasty.db` to Postgres

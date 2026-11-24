@@ -137,6 +137,7 @@ table { border-collapse: collapse; width: 100%; }
 .vote-btn.mine { background: var(--accent); border-color: var(--accent); color: #fff; }
 .vote-count { min-width: 18px; padding: 0 5px; border-radius: 999px; background: var(--bg); color: var(--text); font-size: 12px; font-weight: 700; text-align: center; }
 .voters { margin-top: 6px; }
+.tag.warn { background: var(--danger-soft); color: var(--danger); }
 .tag { font-size: 10px; text-transform: uppercase; padding: 0 5px; border-radius: 4px; border: 1px solid var(--border); color: var(--muted); margin-left: 4px; white-space: nowrap; }
 .note { margin: 8px 0 0; font-style: italic; color: var(--muted); }
 .espn-note { margin: 6px 0 0; padding: 6px 10px; border-radius: var(--radius); background: var(--gold-soft); color: var(--text); }

@@ -81,6 +81,17 @@ def update_record(conn, team):
                   getattr(team, "points_for", None), getattr(team, "standing", None) or None, team.team_id))
 
 
+def store_player_pool(conn, league):
+    """Add every NFL player ESPN knows (it sends the list with the league) that isn't stored yet,
+    so a pick can be marked used on a rookie nobody has rostered. Returns how many were new."""
+    pool = {k: v for k, v in (getattr(league, "player_map", None) or {}).items() if isinstance(k, int) and v}
+    have = {r["id"] for r in conn.execute("SELECT id FROM players")}
+    new = [(pid, name) for pid, name in pool.items() if pid not in have]
+    for pid, name in new:
+        conn.execute("INSERT INTO players (id, name) VALUES (?, ?) ON CONFLICT (id) DO NOTHING", (pid, name))
+    return len(new)
+
+
 def sync_rosters(conn, league):
     conn.execute("DELETE FROM roster_entries")
     count = 0
@@ -243,6 +254,7 @@ def run_sync(conn, year=None, full=False, league_factory=None, user=None, actor_
         if league.year == current_year:
             roster_count = sync_rosters(conn, league)
             espn_log.store_team_names(conn, league)
+            store_player_pool(conn, league)
             espn_log.fetch_draft_standings(conn, league_factory or make_league, current_year)
             added = sync_transactions(conn, league, full=full)
             weeks = espn_lineups.sync_lineups(conn, league)

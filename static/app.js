@@ -551,7 +551,8 @@ function renderPicks() {
       <td data-label="Original team" class="orig">${esc(teamName(p.original_team_id))}</td>
       <td data-label="Owner" class="owner">${esc(teamName(p.owner_team_id))}</td>
       <td data-label="Spot" class="spot">${p.slot ? `${slotText(p)} <span class="muted">#${p.overall}</span>${p.slot_projected ? ` <span class="tag" title="From current standings">projected</span>` : ""}` : ""}</td>
-      <td data-label="Used on" class="extra">${esc(p.used_on || "")}</td>
+      <td data-label="Used on" class="extra">${esc(p.used_on || "")}${p.used_on && !p.used_on_player_id
+        ? ` <span class="tag warn" title="Doesn't match a player in the system. Edit the pick and choose from the suggestions.">no match</span>` : ""}</td>
       <td data-label="Note" class="extra muted small">${esc(p.note || "")}</td>
       <td data-label="Moves" class="extra">${p.history.length ? `<a href="#" data-history="${p.id}">${p.history.length}</a>` : ""}</td>
       <td class="row-actions"><button class="small" data-trade-pick="${p.id}">Trade</button>
@@ -561,11 +562,15 @@ function renderPicks() {
 
 function openEditPick(id) {
   const p = state.picks.find((x) => x.id === id);
-  openModal(`
+  const suggested = new Map();  // name shown -> player id, for the names offered so far
+  const form = openModal(`
     <h2>${esc(p.label)}</h2>
     <p class="muted small">Owned by ${esc(teamName(p.owner_team_id))}. Ownership changes come from trades, so use Trade to move it.</p>
     <label class="block">Pick number in round <input type="number" name="pick_in_round" min="1" value="${p.pick_in_round ?? ""}" placeholder="${p.slot_projected ? "projected " + p.slot : ""}"></label>
-    <label class="block">Used on (player drafted) <input name="used_on" value="${esc(p.used_on || "")}"></label>
+    <label class="block">Used on (player drafted) <input name="used_on" list="player-suggestions" autocomplete="off"
+      value="${esc(p.used_on || "")}" placeholder="Start typing a name"></label>
+    <datalist id="player-suggestions"></datalist>
+    <p class="muted small" id="used-on-hint">${p.used_on && !p.used_on_player_id ? "⚠️ This name doesn't match a player in the system yet. Pick one from the suggestions." : ""}</p>
     <label class="block">Note <textarea name="note" rows="2">${esc(p.note || "")}</textarea></label>
     <div class="change-history" data-history-for="pick_id=${p.id}"></div>
     <div class="actions"><button value="delete" class="danger" formnovalidate>Delete pick</button><span class="spacer"></span>
@@ -575,12 +580,26 @@ function openEditPick(id) {
       if (!confirm("Delete this pick? It will also be removed from any trades it appears in. This can't be undone.")) return;
       await api(`/api/picks/${id}`, { method: "DELETE" });
     } else {
-      await api(`/api/picks/${id}`, { method: "PATCH", body: { pick_in_round: form.pick_in_round.value, used_on: form.used_on.value, note: form.note.value } });
+      const chosen = suggested.get(form.used_on.value);
+      await api(`/api/picks/${id}`, { method: "PATCH", body: { pick_in_round: form.pick_in_round.value, used_on: form.used_on.value,
+        used_on_player_id: chosen ?? (form.used_on.value === (p.used_on || "") ? p.used_on_player_id : null), note: form.note.value } });
     }
     $("#modal").close();
     await refreshAll();
   });
-  loadChangeHistory($("#modal-body"));
+  let timer;
+  form.used_on.oninput = () => {
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      const hits = await api(`/api/players?q=${encodeURIComponent(form.used_on.value)}`).catch(() => []);
+      $("#player-suggestions").innerHTML = hits.map((h) => {
+        suggested.set(h.name, h.id);
+        return `<option value="${esc(h.name)}">${esc([h.position, h.pro_team, h.team].filter(Boolean).join(" · "))}</option>`;
+      }).join("");
+      $("#used-on-hint").textContent = "";
+    }, 200);
+  };
+  loadChangeHistory(form);
 }
 
 function showPickHistory(id) {

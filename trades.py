@@ -103,7 +103,7 @@ def grade(conn, trades, now):
         if not pick["used_on"]:
             return {**out, "note": "No player recorded for this pick yet"}
         out["used_on"] = pick["used_on"]
-        pid = player_id(None, pick["used_on"])
+        pid = pick.get("used_on_player_id") or player_id(None, pick["used_on"])
         if pid is None:
             return {**out, "note": "No lineups found for this name"}
         # rookies arrive the summer of the draft (this league adds them as free agents)

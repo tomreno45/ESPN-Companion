@@ -895,3 +895,50 @@ def test_draft_order_non_playoff_teams_by_record_then_playoff_finish():
     conn.close()
     assert sorted(order, key=order.get) == [1, 4, 2, 5,             # missed the playoffs: worst record first
                                             13, 9, 10, 12, 8, 11]   # then playoff finish, 6th to champion
+
+
+def test_used_on_must_be_a_player_in_the_system(client):
+    client.post("/api/sync", json={})
+    conn = db.connect()
+    pick_id = conn.insert("INSERT INTO draft_picks (season, round, original_team_id) VALUES (2026, 1, 1)")
+    conn.execute("""INSERT INTO lineups (season, week, team_id, player_id, player_name, position, pro_team, slot, points)
+                    VALUES (2026, 1, 1, 401, 'Jeremiyah Love', 'RB', 'ARI', 'RB', 20)""")
+    conn.execute("""INSERT INTO lineups (season, week, team_id, player_id, player_name, position, slot, points)
+                    VALUES (2025, 1, 2, 402, 'Kyle Pitts Sr.', 'TE', 'TE', 9)""")
+    conn.commit()
+    conn.close()
+
+    hits = client.get("/api/players?q=love").json
+    assert [(h["id"], h["name"], h["position"]) for h in hits] == [(401, "Jeremiyah Love", "RB")]
+    assert client.get("/api/players?q=").json == []
+
+    edit = lambda **body: client.patch(f"/api/picks/{pick_id}", json=body)
+    pick = lambda: next(p for p in client.get("/api/picks").json if p["id"] == pick_id)
+    r = edit(used_on="Jeimayah Love")  # a typo
+    assert r.status_code == 400 and "No player called Jeimayah Love" in r.json["error"]
+    assert pick()["used_on"] is None
+    assert edit(used_on="jeremiyah love").status_code == 200  # typed, matched ignoring case
+    assert (pick()["used_on"], pick()["used_on_player_id"]) == ("Jeremiyah Love", 401)
+    assert edit(used_on="Kyle Pitts", used_on_player_id=402).status_code == 200  # chosen from the suggestions
+    assert (pick()["used_on"], pick()["used_on_player_id"]) == ("Kyle Pitts Sr.", 402)
+    assert edit(used_on="kyle pitts").status_code == 200  # suffixes don't matter
+    assert edit(used_on="", note="traded up").status_code == 200  # clearing it
+    assert (pick()["used_on"], pick()["used_on_player_id"], pick()["note"]) == (None, None, "traded up")
+
+
+def test_sync_stores_espn_player_pool_for_picks(client, monkeypatch):
+    # a rookie nobody has rostered is still in ESPN's player list
+    monkeypatch.setattr(FakeLeague, "player_map", {601: "Ty Simpson", "Ty Simpson": 601}, raising=False)
+    client.post("/api/sync", json={})
+    assert [h["id"] for h in client.get("/api/players?q=simpson").json] == [601]
+
+    conn = db.connect()
+    pick_id = conn.insert("INSERT INTO draft_picks (season, round, original_team_id, used_on) VALUES (2026, 2, 1, 'Joe Nobody')")
+    conn.commit()
+    conn.close()
+    # an old name that matches nobody doesn't block editing the rest of the pick
+    assert client.patch(f"/api/picks/{pick_id}", json={"used_on": "Joe Nobody", "note": "hi"}).status_code == 200
+    assert client.patch(f"/api/picks/{pick_id}", json={"used_on": "Joe Nobodyy"}).status_code == 400
+    assert client.patch(f"/api/picks/{pick_id}", json={"used_on": "ty simpson"}).status_code == 200
+    p = next(p for p in client.get("/api/picks").json if p["id"] == pick_id)
+    assert (p["used_on"], p["used_on_player_id"], p["note"]) == ("Ty Simpson", 601, "hi")

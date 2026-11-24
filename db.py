@@ -195,6 +195,7 @@ ADDED_COLUMNS = [
     ("team_seasons", "standing", "INTEGER"),          # regular-season rank
     ("team_seasons", "final_standing", "INTEGER"),    # rank after the playoffs; NULL until the season ends
     ("team_seasons", "playoff_teams", "INTEGER"),     # how many teams made the playoffs that season
+    ("draft_picks", "used_on_player_id", "INTEGER"),  # the player record used_on names
 ]
 
 

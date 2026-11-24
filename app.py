@@ -26,6 +26,7 @@ import awards
 import db
 import espn_log
 import espn_sync
+import players
 import records
 import trades
 
@@ -775,6 +776,32 @@ def get_pick(conn, pick_id):
     return next((p for p in load_picks(conn) if p["id"] == pick_id), None)
 
 
+def used_on_player(conn, player_id, name):
+    """The player a pick was used on, from an id chosen in the suggestions or a typed name. None to clear."""
+    known = players.directory(conn)
+    if player_id not in (None, ""):
+        try:
+            return known[int(player_id)]
+        except (KeyError, ValueError, TypeError):
+            raise ValueError("Unknown player.")
+    if not (name or "").strip():
+        return None
+    match = players.find(known, name)
+    if len(match) == 1:
+        return match[0]
+    if match:
+        raise ValueError(f"More than one player is called {name.strip()}. Pick the right one from the suggestions.")
+    raise ValueError(f"No player called {name.strip()} in the system. Pick a name from the suggestions; "
+                     "a rookie shows up once a team adds him on ESPN and the app syncs.")
+
+
+@app.get("/api/players")
+def api_players():
+    teams = team_map(get_db())
+    hits = players.search(players.directory(get_db()), request.args.get("q", ""), limit=15)
+    return jsonify([{**p, "team": teams[p["team_id"]]["name"] if p["team_id"] in teams else None} for p in hits])
+
+
 @app.post("/api/picks/generate")
 @commissioner_only
 def api_generate_picks():
@@ -851,6 +878,17 @@ def api_update_pick(pick_id):
             fields["pick_in_round"] = int_or_none(fields["pick_in_round"])
     except ValueError:
         return bad_request("Pick number must be a number.")
+    if "used_on" in fields or "used_on_player_id" in data:
+        try:
+            player = used_on_player(conn, data.get("used_on_player_id"), fields.get("used_on"))
+        except ValueError as e:
+            if (fields.get("used_on") or None) != pick["used_on"]:
+                return bad_request(str(e))
+            player = None  # an old name that matches nobody, left as it was while other fields change
+        fields["used_on"] = player["name"] if player else fields.get("used_on")
+        if (player["id"] if player else None) != pick["used_on_player_id"]:
+            conn.execute("UPDATE draft_picks SET used_on_player_id = ? WHERE id = ?", (player["id"] if player else None, pick_id))
+            conn.commit()
     changes = {k: (v or None) for k, v in fields.items() if (v or None) != pick[k]}
     if changes:
         for k, v in changes.items():
