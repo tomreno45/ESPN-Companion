@@ -771,3 +771,11 @@ def test_league_records(client):
     during = records.compute(conn, 2024, espn_lineups.week_start(2024, 2) + DAY)
     conn.close()
     assert (during["team_week_low"][0]["week"], during["team_week_low"][0]["pts"]) == (1, 30)
+
+
+def test_hosted_app_refuses_to_run_without_postgres(monkeypatch):
+    monkeypatch.setenv("RAILWAY_ENVIRONMENT", "production")
+    monkeypatch.setenv("SECRET_KEY", "x" * 32)
+    monkeypatch.setenv("DATABASE_URL", "")  # an unresolved ${{Postgres.DATABASE_URL}} comes through empty
+    with pytest.raises(RuntimeError, match="DATABASE_URL"):
+        app_module.configure()

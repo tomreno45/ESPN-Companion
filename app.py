@@ -1000,6 +1000,11 @@ def configure():
         secret = secrets.token_hex(32)
     app.secret_key = secret
     hosted = any(k in os.environ for k in ("RAILWAY_ENVIRONMENT", "RAILWAY_ENVIRONMENT_NAME"))
+    if hosted and not db.using_postgres():
+        # Railway's disk is wiped on every deploy, so a SQLite file there would lose everything
+        raise RuntimeError("DATABASE_URL is empty or not a Postgres URL. On the app service's Variables, set it to "
+                           "${{Postgres.DATABASE_URL}}, using the Postgres service's exact name.")
+    print(f"Using {'Postgres' if db.using_postgres() else 'the SQLite file ' + db.db_path()}.", file=sys.stderr)
     app.config.update(
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
