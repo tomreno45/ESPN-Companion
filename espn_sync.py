@@ -243,6 +243,7 @@ def run_sync(conn, year=None, full=False, league_factory=None, user=None, actor_
         if league.year == current_year:
             roster_count = sync_rosters(conn, league)
             espn_log.store_team_names(conn, league)
+            espn_log.fetch_draft_standings(conn, league_factory or make_league, current_year)
             added = sync_transactions(conn, league, full=full)
             weeks = espn_lineups.sync_lineups(conn, league)
             msg = f"{roster_count} rostered players, {added} new transactions" + (f", {weeks} weeks of lineups" if weeks else "")

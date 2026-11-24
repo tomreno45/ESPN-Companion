@@ -845,3 +845,35 @@ def test_trade_points_and_votes(client, flask_app):
     t = next(x for x in client.get("/api/transactions?kind=TRADE").json if x["id"] == txn_id)
     rookie = next(s for s in t["sides"] if s["team_id"] == 2)["assets"][0]
     assert (rookie["traded_on_to"], rookie["points"]) == (1, None)
+
+
+def test_past_draft_order_from_final_standings(client, monkeypatch):
+    client.post("/api/sync", json={})  # 2026: teams 1 (Alpha) and 2 (Bravo)
+
+    def past_league(year):  # Bravo won it all, Alpha finished last
+        return NS(year=year, teams=[
+            NS(team_id=1, team_name="Old Alpha", team_abbrev="ALP", wins=3, losses=10, ties=0, points_for=1200.5, standing=2, final_standing=2),
+            NS(team_id=2, team_name="Bravo", team_abbrev="BRV", wins=9, losses=4, ties=0, points_for=1500.0, standing=1, final_standing=1)])
+    monkeypatch.setattr(espn_sync, "make_league", lambda year=None: past_league(year) if year and year < 2026 else FakeLeague(FEED))
+
+    r = client.post("/api/picks/generate", json={"start_season": 2025, "end_season": 2027, "rounds": 2})
+    assert r.json["created"] == 12
+    picks = {(p["season"], p["round"], p["original_team_id"]): p for p in client.get("/api/picks").json}
+    alpha, bravo = picks[(2026, 1, 1)], picks[(2026, 1, 2)]
+    assert (alpha["slot"], alpha["overall"], alpha["slot_projected"]) == (1, 1, False)  # last place picks first
+    assert (bravo["slot"], bravo["overall"]) == (2, 2)
+    assert picks[(2026, 2, 2)]["overall"] == 4 and alpha["label"] == "2026 Rd 1.01 (ALP)"
+    assert picks[(2025, 1, 1)]["slot"] == 1  # 2025's draft from the 2024 standings
+    assert picks[(2027, 1, 1)]["slot_projected"]  # the next draft is still projected from this season
+
+    conn = db.connect()
+    row = conn.execute("SELECT * FROM team_seasons WHERE season = 2025 AND team_id = 1").fetchone()
+    conn.close()
+    assert (row["wins"], row["losses"], row["final_standing"]) == (3, 10, 2)
+
+    # a spot set by hand still wins
+    client.patch(f"/api/picks/{alpha['id']}", json={"pick_in_round": 2})
+    assert next(p for p in client.get("/api/picks").json if p["id"] == alpha["id"])["slot"] == 2
+    # the Teams tab lists only picks still to be used
+    teams = {t["id"]: t for t in client.get("/api/teams").json}
+    assert {p["season"] for p in teams[1]["picks"]} == {2027}

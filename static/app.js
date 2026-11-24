@@ -108,7 +108,8 @@ function fillFilters() {
   el.value = v;
   const ps = $("#p-season"), pv = ps.value;
   const pickSeasons = [...new Set(state.picks.map((p) => p.season))];
-  ps.innerHTML = `<option value="">All seasons</option>` + pickSeasons.map((s) => `<option>${s}</option>`).join("");
+  ps.innerHTML = `<option value="">Upcoming drafts</option><option value="all">All seasons</option>`
+    + pickSeasons.map((s) => `<option>${s}</option>`).join("");
   ps.value = pv;
   const gen = $("#gen-form");
   if (!gen.start_season.value) {
@@ -532,12 +533,13 @@ function openNewTrade(prefill = {}) {
 function renderPicks() {
   const season = $("#p-season").value, owner = $("#p-team").value, moved = $("#p-moved").checked;
   const rows = state.picks.filter((p) =>
-    (!season || p.season === +season) && (!owner || p.owner_team_id === +owner) && (!moved || p.owner_team_id !== p.original_team_id));
+    (season === "all" || (season ? p.season === +season : p.season >= state.sync.draft_season)) && (!owner || p.owner_team_id === +owner) && (!moved || p.owner_team_id !== p.original_team_id));
   const el = $("#picks-table");
   const hasStandings = state.teams.some((t) => t.wins != null);
-  $("#picks-note").textContent = hasStandings
-    ? `Spots for the ${state.sync.draft_season} draft are projected from current standings: worst record picks first. Set a pick's number to lock in its real spot.`
-    : `Sync the ${state.sync.year} season to project ${state.sync.draft_season} draft spots from the standings.`;
+  $("#picks-note").textContent = (hasStandings
+    ? `Spots for the ${state.sync.draft_season} draft are projected from current standings until the season ends. `
+    : `Sync the ${state.sync.year} season to project ${state.sync.draft_season} draft spots from the standings. `)
+    + "Each draft's order is the season before's final standings, reversed: last place picks first, the champion last. Set a pick's number to override it.";
   if (!state.picks.length) {
     el.innerHTML = `<div class="empty">No picks yet. ${state.me?.is_commissioner ? "Use “Create picks” above to give every team its own picks for the seasons you track." : "The commissioner hasn't created them yet."}</div>`;
     return;

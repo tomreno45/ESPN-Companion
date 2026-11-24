@@ -188,6 +188,12 @@ ADDED_COLUMNS = [
     ("transaction_items", "created_by", "INTEGER"),
     ("sync_runs", "user_id", "INTEGER"),
     ("sync_runs", "actor_name", "TEXT"),
+    ("team_seasons", "wins", "INTEGER"),
+    ("team_seasons", "losses", "INTEGER"),
+    ("team_seasons", "ties", "INTEGER"),
+    ("team_seasons", "points_for", "REAL"),
+    ("team_seasons", "standing", "INTEGER"),          # regular-season rank
+    ("team_seasons", "final_standing", "INTEGER"),    # rank after the playoffs; NULL until the season ends
 ]
 
 

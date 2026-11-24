@@ -146,20 +146,34 @@ def projected_slots(teams):
     return {t["id"]: n - i for i, t in enumerate(best_first)}
 
 
+def draft_orders(conn):
+    """{draft season: {team_id: spot in each round}} from the season before's final standings:
+    last place picks first, the champion last. Only seasons where every team has a final rank."""
+    by_season = {}
+    for r in conn.execute("SELECT season, team_id, final_standing FROM team_seasons"):
+        by_season.setdefault(r["season"], {})[r["team_id"]] = r["final_standing"]
+    return {season + 1: {tid: len(ranks) + 1 - rank for tid, rank in ranks.items()}
+            for season, ranks in by_season.items() if all(ranks.values())}
+
+
 def load_picks(conn, teams=None):
     teams = teams or team_map(conn)
     owners = db.pick_owners(conn)
     league = {tid: t for tid, t in teams.items() if t["current"]}  # teams in the league now
     projection = projected_slots(league)
+    orders = draft_orders(conn)
     draft_season = next_draft_season()
     picks = []
     for p in conn.execute("SELECT * FROM draft_picks"):
         p["owner_team_id"] = owners.get(p["id"], p["original_team_id"])
-        p["label"] = pick_label(p, teams)
-        # A pick's spot comes from its original team; a slot set by hand beats the projection.
+        # A pick's spot comes from its original team: set by hand, else the final standings of the
+        # season before, else (for the next draft, mid-season) a projection from today's standings.
         slot, projected = p["pick_in_round"], False
+        if slot is None:
+            slot = orders.get(p["season"], {}).get(p["original_team_id"])
         if slot is None and p["season"] == draft_season and p["original_team_id"] in projection:
             slot, projected = projection[p["original_team_id"]], True
+        p["label"] = pick_label({**p, "pick_in_round": None if projected else slot}, teams)
         p["slot"] = slot
         p["slot_projected"] = projected
         p["overall"] = (p["round"] - 1) * len(league) + slot if slot else None
@@ -469,7 +483,7 @@ def api_teams():
         roster.sort(key=lambda p: (order.get(p["lineup_slot"], 99), p["name"]))
         t = dict(t)
         t["roster"] = roster
-        t["picks"] = [p for p in picks if p["owner_team_id"] == t["id"]]
+        t["picks"] = [p for p in picks if p["owner_team_id"] == t["id"] and p["season"] >= next_draft_season()]
         out.append(t)
     return jsonify(out)
 
@@ -762,21 +776,34 @@ def api_generate_picks():
         return bad_request("start_season, end_season and rounds are required numbers.")
     if end < start or not (1 <= rounds <= 40) or end - start > 20:
         return bad_request("Check the season range and number of rounds.")
-    team_ids = [r["id"] for r in conn.execute("SELECT id FROM teams WHERE current = 1")]
-    if not team_ids:
+    if not conn.scalar("SELECT COUNT(*) AS n FROM teams WHERE current = 1"):
         return bad_request("No teams yet. Sync with ESPN first.")
+    return jsonify({"created": generate_picks(conn, start, end, rounds, g.user)})
+
+
+def generate_picks(conn, start, end, rounds, user):
+    """Give every team its own picks for seasons start..end; returns how many were new.
+
+    A past draft's picks go to the teams in the league that season, and the final
+    standings of the season before (which order it) are fetched from ESPN.
+    """
+    team_ids = [r["id"] for r in conn.execute("SELECT id FROM teams WHERE current = 1")]
     created = 0
     for season in range(start, end + 1):
+        then = [r["team_id"] for r in conn.execute("SELECT team_id FROM team_seasons WHERE season = ?", (season,))]
         for rnd in range(1, rounds + 1):
-            for tid in team_ids:
+            for tid in (then if season <= current_season() and then else team_ids):
                 cur = conn.execute("""INSERT INTO draft_picks (season, round, original_team_id) VALUES (?, ?, ?)
                                       ON CONFLICT DO NOTHING""", (season, rnd, tid))
                 created += cur.rowcount
     if created:
         seasons = str(start) if start == end else f"{start}–{end}"
-        db.audit(conn, g.user, "picks.generate", f"Created {created} draft picks for {seasons} ({rounds} rounds)")
+        db.audit(conn, user, "picks.generate", f"Created {created} draft picks for {seasons} ({rounds} rounds)")
     conn.commit()
-    return jsonify({"created": created})
+    if start <= current_season():
+        espn_log.fetch_draft_standings(conn, espn_sync.make_league, current_season())
+        conn.commit()
+    return created
 
 
 @app.post("/api/picks")
